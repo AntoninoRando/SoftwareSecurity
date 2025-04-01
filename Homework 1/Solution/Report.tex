@@ -1,0 +1,108 @@
+\documentclass[a4paper,10pt]{article}
+\usepackage{graphicx}
+\usepackage{hyperref}
+\usepackage{listings}
+
+\title{Security in Software Applications - Project 1}
+\author{LastName Matricola}
+\date{A.A. 2024/2025}
+
+\begin{document}
+\maketitle
+
+\section{Flawfinder: Strengths and Weaknesses}
+Flawfinder is a useful static analysis tool for detecting potential security vulnerabilities in C/C++ code. Its main strengths include:
+\begin{itemize}
+    \item Quick analysis with a ranked severity system.
+    \item Identifies well-known insecure functions.
+    \item Provides CWE references for better understanding.
+\end{itemize}
+However, the tool also has limitations:
+\begin{itemize}
+    \item High false positive rate, requiring manual inspection.
+    \item Does not detect logical vulnerabilities or runtime issues.
+    \item Some warnings are too generic, making prioritization difficult.
+\end{itemize}
+
+\section{Analysis of Warnings}
+Below are the key warnings found and their analysis:
+\begin{itemize}
+    \item \textbf{strcpy (line 42) [4]}: Unsafe due to lack of bounds checking. Should be replaced with \texttt{snprintf} or \texttt{strncpy} with explicit null termination.
+    \item \textbf{fprintf (line 56) [4]}: Possible format string vulnerability. The format should be constant to prevent attacks.
+    \item \textbf{Statically-sized arrays (lines 8, 28, 33) [2]}: Risk of buffer overflow. Dynamic allocation or bound checking is recommended.
+    \item \textbf{strcat (line 35) [2]}: Does not check destination size, risking overflow. \texttt{strncat} with proper length should be used.
+    \item \textbf{strncpy (lines 9, 34) [1]}: May not null-terminate. Ensure explicit \texttt{dst[size-1] = '\\0'}.
+    \item \textbf{read (lines 17, 22) [1]}: Buffer boundaries should be checked before use.
+\end{itemize}
+
+\section{Additional Vulnerabilities}
+Flawfinder did not flag:
+\begin{itemize}
+    \item \textbf{Incorrect use of strlen in func1}: The buffer size calculation is incorrect, potentially leading to overflows.
+    \item \textbf{Unhandled exceptions in func3}: The try-catch block is invalid in C and will not compile.
+    \item \textbf{Infinite loop risk in main}: The loop at the end of \texttt{main} accesses an array out of bounds.
+\end{itemize}
+
+\section{Corrected Code}
+The following modifications were made to secure the code:
+\begin{lstlisting}[language=C]
+#include <stdlib.h>
+#include <string.h>
+#include <stdio.h>
+#include <ctype.h>
+
+void func1(const char *src) {
+    size_t len = strlen(src);
+    char *dst = malloc(len + 1);
+    if (dst) {
+        strncpy(dst, src, len);
+        dst[len] = '\0';
+        free(dst);
+    }
+}
+
+void func2(int fd) {
+    char *buf;
+    size_t len;
+    if (read(fd, &len, sizeof(len)) != sizeof(len) || len > 1024)
+        return;
+    buf = malloc(len + 1);
+    if (buf) {
+        if (read(fd, buf, len) == len) {
+            buf[len] = '\0';
+        }
+        free(buf);
+    }
+}
+
+void func3() {
+    char buffer[1024];
+    printf("Please enter your user id:");
+    if (fgets(buffer, sizeof(buffer), stdin)) {
+        if (!isalpha(buffer[0])) {
+            char errormsg[1044];
+            snprintf(errormsg, sizeof(errormsg), "%s is not a valid ID", buffer);
+        }
+    }
+}
+
+void func4(const char *foo) {
+    char *buffer = (char *)malloc(11);
+    if (buffer) {
+        strncpy(buffer, foo, 10);
+        buffer[10] = '\0';
+        free(buffer);
+    }
+}
+
+int main() {
+    func4("safe_input");
+    func3();
+    return 0;
+}
+\end{lstlisting}
+
+\section{Verification}
+After running Flawfinder on the corrected code, no critical vulnerabilities were reported.
+
+\end{document}
