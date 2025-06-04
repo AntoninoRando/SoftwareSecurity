@@ -13,11 +13,13 @@ contract Person {
     address father;
 
     uint constant DEFAULT_SUBSIDY = 500;
+    uint constant ELDERLY_SUBSIDY = 600;
+    uint constant RETIREMENT_AGE = 65;
 
     /* welfare subsidy */
     uint state_subsidy;
 
-    constructor(address ma, address fa) {
+    function initPerson(address ma, address fa) public {
         age = 0;
         isMarried = false;
         mother = ma;
@@ -52,30 +54,36 @@ contract Person {
     function getSpouse() public view returns (address) {
         return spouse;
     }
-}
 
-contract TestPerson is Person {
-    constructor()
-        Person(
-            address(0x0000000000000000000000000000000000000001),
-            address(0x0000000000000000000000000000000000000002)
-        )
-    {}
-
-    //#region Echidna tests ----------------------------------------------------
-
+    //#region ECHIDNA PROPERTIES / PART 1 --------------------------------------
     function echidna_symmetricMarriage() public view returns (bool) {
-        if (!isMarried) return true;
-        return Person(address(spouse)).getSpouse() == address(this);
+        if (!isMarried || spouse == address(0)) return true;
+        return Person(spouse).getSpouse() == address(this);
     }
-
     function echidna_spouseAddressConsistency() public view returns (bool) {
-        return isMarried ? spouse != address(0) : spouse == address(0);
+        return isMarried? spouse != address(0) : spouse == address(0);
     }
-
     function echidna_notSelfMarried() public view returns (bool) {
         return spouse != address(this);
     }
-
+    //#endregion ---------------------------------------------------------------
+    //#region ECHIDNA PROPERTIES / PART 2 --------------------------------------
+    function echidna_rightSubsidy() public view returns (bool) {
+        if (isMarried) return state_subsidy == DEFAULT_SUBSIDY * 70 / 100;
+        return state_subsidy == (age < RETIREMENT_AGE ? 
+                                DEFAULT_SUBSIDY : ELDERLY_SUBSIDY);
+    }
+    function echidna_validAge() public view returns (bool) {
+        return age >= 0;
+    }
     //#endregion ---------------------------------------------------------------
 }
+
+// contract TestPerson is Person {
+//     constructor()
+//         Person(
+//             address(0x0000000000000000000000000000000000000001),
+//             address(0x0000000000000000000000000000000000000002)
+//         )
+//     {}
+// }

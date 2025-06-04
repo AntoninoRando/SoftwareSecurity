@@ -1,0 +1,16 @@
+testMode: property
+testLimit: 50000
+shrinkLimit: 5000
+seqLen: 100
+contractAddr: "0x00a329c0648769A73afAc7F9381E08FB43dBEA72"
+deployer: "0x00a329c0648769A73afAc7F9381E08FB43dBEA70"
+sender: ["0x00a329c0648769A73afAc7F9381E08FB43dBEA70", "0x00a329c0648769A73afAc7F9381E08FB43dBEA71", "0x00a329c0648769A73afAc7F9381E08FB43dBEA72"]
+psender: "0x00a329c0648769A73afAc7F9381E08FB43dBEA70"
+prefix: "echidna_"
+corpusDir: "corpus"
+coverage: true
+checkAsserts: true
+multi-abi: false
+codeSize: 0x6000
+balanceAddr: 0xffffffff
+balanceContract: 0xffffffff
