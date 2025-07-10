@@ -3,106 +3,194 @@
 \usepackage{hyperref}
 \usepackage{listings}
 
-\title{Security in Software Applications - Project 1}
-\author{LastName Matricola}
+\title{Security in Software Applications\\Homework 1}
+\author{Rando, 1985084}
 \date{A.A. 2024/2025}
 
 \begin{document}
+
 \maketitle
 
-\section{Flawfinder: Strengths and Weaknesses}
-Flawfinder is a useful static analysis tool for detecting potential security vulnerabilities in C/C++ code. Its main strengths include:
-\begin{itemize}
-    \item Quick analysis with a ranked severity system.
-    \item Identifies well-known insecure functions.
-    \item Provides CWE references for better understanding.
-\end{itemize}
-However, the tool also has limitations:
-\begin{itemize}
-    \item High false positive rate, requiring manual inspection.
-    \item Does not detect logical vulnerabilities or runtime issues.
-    \item Some warnings are too generic, making prioritization difficult.
-\end{itemize}
+\section{Flawfinder}
+Flawfinder is a static analysis tool designed to identify potential security vulnerabilities within C and C++ source code.
 
-\section{Analysis of Warnings}
-Below are the key warnings found and their analysis:
+\subsection{Strengths and Weaknesses}
+
+The Flawfinder \href{https://dwheeler.com/flawfinder/}{documentation} lists, under the section “Reviews/Papers”, some strengths and weaknesses of the tool.
+
 \begin{itemize}
-    \item \textbf{strcpy (line 42) [4]}: Unsafe due to lack of bounds checking. Should be replaced with \texttt{snprintf} or \texttt{strncpy} with explicit null termination.
-    \item \textbf{fprintf (line 56) [4]}: Possible format string vulnerability. The format should be constant to prevent attacks.
-    \item \textbf{Statically-sized arrays (lines 8, 28, 33) [2]}: Risk of buffer overflow. Dynamic allocation or bound checking is recommended.
-    \item \textbf{strcat (line 35) [2]}: Does not check destination size, risking overflow. \texttt{strncat} with proper length should be used.
-    \item \textbf{strncpy (lines 9, 34) [1]}: May not null-terminate. Ensure explicit \texttt{dst[size-1] = '\\0'}.
-    \item \textbf{read (lines 17, 22) [1]}: Buffer boundaries should be checked before use.
+    \item  ``Low comparative cost and memory cost'' [1];
+    \item  ``Can find vulnerabilities in the categories V1 (Stack-based buffer overflow), V2 (Heap-based buffer overflow), and V4 (Format string vulnerabilities)'' [1].
+    \item ``When the tool does find an error, it is extremely useful'' [8]. Indeed, it provides CWE references. Yet, some warnings are too generic.
+    \item ``Applicability limitations A1 (Source code required) and A10 (Only protects libc string manipulation functions)'' [1].
+    \item ``Protection limitation P17 (False negatives are possible)'' [1].
+    \item ``There are papers that pointed out practical limitations'' [6]. For instance, it does not detect logical vulnerabilities or runtime issues.
+    \item It has a high ``False positives'' [8].
 \end{itemize}
 
-\section{Additional Vulnerabilities}
-Flawfinder did not flag:
+\section{A Use-Case: Analysis of Warnings}
+
+\begin{figure}
+    \centering
+    \includegraphics[width=0.8\linewidth]{Images/Project1-warnings.png}
+    \caption{Warnings produces by the tool Flawfinder on the code Projcet1\_SSA24.c}
+    \label{fig:enter-label}
+\end{figure}
+
+The execution of the tool on the proposed code produced the output shown in Figure 1. Below are the key warnings found on the reported lines and their analysis:
 \begin{itemize}
-    \item \textbf{Incorrect use of strlen in func1}: The buffer size calculation is incorrect, potentially leading to overflows.
-    \item \textbf{Unhandled exceptions in func3}: The try-catch block is invalid in C and will not compile.
-    \item \textbf{Infinite loop risk in main}: The loop at the end of \texttt{main} accesses an array out of bounds.
+    \item[\textbf{8}] The problem refers to the eventuality of \texttt{src} not being \textit{null-terminated}, thus causing a memory access violation when reading its length with \texttt{strlen} and using this amount as another string length.
+    \item[\textbf{9-10}] The line 9 has the same problem listed above. In this case, there is also the need of null-terminating a string after using \texttt{strncpy} and the tool warns us of possible error. Indeed, the index for the last character is determined incorrectly, since the length of the \texttt{dest} string is used without subtracting 1 to it. Moreover, this length is calculated \textit{before} adding the null terminator to \texttt{dest}.
+    \item[\textbf{17, 22}] After using \texttt{read}, we should check the function return value to verify that the buffer has been correctly filled.
+    \item[\textbf{28, 33, 34, 35}] These are all false positives. For lines 28 and 33, the tool warns us that we may underestimate the actual size needed to the array, and suggests to determine it dynamically. But \texttt{fgtes} ensures that the buffer limit is not exceeded. Also, in lines 33-35, 1024 characters are copied with \texttt{strncpy} and 19 are concatenated with \texttt{strcat}, leaving 1 character left for the null-terminator. The warning of missing a null-terminator in line 34 is not real because the null-terminator will be added through \texttt{strcat} in line 35.
+    \item[\textbf{42}] This error is real: the use of \texttt{strcpy} does not set a limit for the copying operation, and a memory violation can be easily achieved. Moreover, after copying a string into \texttt{buffer} the null-terminator character is not added.
+    \item[\textbf{56}] This basically spotted a string-format vulnerability in the code.
 \end{itemize}
 
-\section{Corrected Code}
-The following modifications were made to secure the code:
-\begin{lstlisting}[language=C]
-#include <stdlib.h>
-#include <string.h>
-#include <stdio.h>
-#include <ctype.h>
+\bigskip\noindent Unfortunately, Flawfinder did \textit{not} flag the following vulnerabilities:
+\begin{itemize}
+    \item Line 41: Even if the size of the buffer is not computed statically, here there is a constant 10 that is will not be suitable for many input strings.
+    \item Lines 60-63: The loop should first reduce the \texttt{y} value and then use it as index for accessing the array \texttt{a}. In this way, the first loop iteration will cause a memory access violation. Moreover, the check should be exclusive: \texttt{y > 0}.
+    \item In general, the code misses some check of null arguments.
+    \item In general, the tool doesn't help us with possible memory leaks caused by missing \texttt{free} on dynamically allocated memory.
+\end{itemize}
 
-void func1(const char *src) {
-    size_t len = strlen(src);
-    char *dst = malloc(len + 1);
-    if (dst) {
-        strncpy(dst, src, len);
-        dst[len] = '\0';
-        free(dst);
-    }
-}
+\bigskip\noindent Of course, the tool did not spot the compile errors, that are leaved to the compiler:
+\begin{itemize}
+    \item Missing \# symbol in the include instructions;
+    \item Invalid try-catch block in function \texttt{main};
+    \item Missing closing parenthesis \} for the \texttt{main} function;
+    \item Missing semicolon at line 58;
+    \item Undefined term aFile in line 58;
+    \item Missing some headers (e.g., \texttt{<ctype.h>} for the \texttt{isAlpha} function).
+\end{itemize}
 
-void func2(int fd) {
-    char *buf;
-    size_t len;
-    if (read(fd, &len, sizeof(len)) != sizeof(len) || len > 1024)
-        return;
-    buf = malloc(len + 1);
-    if (buf) {
-        if (read(fd, buf, len) == len) {
-            buf[len] = '\0';
-        }
-        free(buf);
-    }
-}
+\section{Correct Code}
 
-void func3() {
-    char buffer[1024];
-    printf("Please enter your user id:");
-    if (fgets(buffer, sizeof(buffer), stdin)) {
-        if (!isalpha(buffer[0])) {
-            char errormsg[1044];
-            snprintf(errormsg, sizeof(errormsg), "%s is not a valid ID", buffer);
-        }
-    }
-}
+The following modifications were made to secure the code. The result of the Flawfinder on this modified version of the code is shown in Figure 2.
 
-void func4(const char *foo) {
-    char *buffer = (char *)malloc(11);
-    if (buffer) {
-        strncpy(buffer, foo, 10);
-        buffer[10] = '\0';
-        free(buffer);
-    }
-}
+\begin{figure}
+    \centering
+    \includegraphics[width=1\linewidth]{Images/Project1-warning_after.png}
+    \caption{Flawfinder result on the corrected code.}
+\end{figure}
 
-int main() {
-    func4("safe_input");
-    func3();
-    return 0;
-}
-\end{lstlisting}
+\begin{figure}
+    \centering
+    \includegraphics[width=1\linewidth]{Images/Project1-correctCode.png}
+    \caption{The correct version of the code}
+\end{figure}
 
-\section{Verification}
-After running Flawfinder on the corrected code, no critical vulnerabilities were reported.
+% \begin{lstlisting}[language=C]
+% #include <stdlib.h>
+% #include <string.h>
+% #include <stdio.h>
+% #include <unistd.h>
+% #include <stdint.h>
+% #include <ctype.h>
+% #include <cstdio>
+
+% void func1(const char *src) {
+%     if (!src) return; 
+
+%     // Limit in case of non null-terminated src
+%     size_t n = strnlen(src, 1024);
+%     char *dst = (char *)malloc(n + 1);
+
+%     if (!dst) return;
+%     snprintf(dst, n + 1, "%s", src);
+%     free(dst);
+% }
+
+% void func2(int fd) {
+%     size_t len;
+%     ssize_t ret = read(fd, &len, sizeof(len));
+%     if (ret != sizeof(len)) return;
+%     if (len == 0 || len > 1024)  return;
+    
+%     char *buf = (char *)malloc(len + 1);
+%     if (!buf) return;
+
+%     ret = read(fd, buf, len);
+%     if (ret != (ssize_t)len) {
+%         free(buf);
+%         return;
+%     }
+
+%     buf[len] = '\0';
+%     free(buf);
+% }
+
+% int func3() {
+%     size_t buffer_size = 1024;
+%     char *buffer = (char *)malloc(buffer_size);
+%     if (!buffer) return -1;
+
+%     printf("Please enter your user ID: ");
+%     if (!fgets(buffer, buffer_size, stdin)) { free(buffer); return -2; }
+
+%     size_t len = strnlen(buffer, buffer_size);
+
+%     // Aware of trailing new-lines
+%     if (len > 0 && buffer[len - 1] == '\n') {
+%         buffer[len - 1] = '\0';
+%     }
+
+%     // Validate that the first character is a letter
+%     if (buffer[0] == '\0' || !isalpha((unsigned char)buffer[0])) {
+%         // Use a dynamic buffer to avoid fixed-size issues
+%         size_t err_len = len + 21; // " is not a valid ID" + 1 (null terminator)
+%         char *errormsg = (char *)malloc(err_len);
+%         if (!errormsg) {
+%             fprintf(stderr, "Memory allocation failed.\n");
+%             free(buffer);
+%             return -3;
+%         }
+
+%         snprintf(errormsg, err_len, "%s is not a valid ID", buffer);
+%         fprintf(stderr, "%s\n", errormsg);
+%         free(errormsg);
+%     }
+
+%     free(buffer);
+%     return 0;
+% }
+
+% void func4(const char *foo) {
+%     if (!foo) return;
+
+%     size_t len = strnlen(foo, 9);
+%     char *buffer = (char *)malloc(10);
+%     if (!buffer) return;
+
+%     snprintf(buffer, len, "%s", foo);
+%     free(buffer);
+% }
+
+% main()
+% {
+%     int y = 10;
+%     int a[10];
+
+%     func4("fooooooooooooooooooooooooooooooooooooooooooooooooooo");
+
+%     // Use error code instead of try and catch
+    
+%     int i = func3();
+%     if (i == -1) fprintf(stderr, "...");
+%     if (i == -2) fprintf(stderr, "...");
+%     if (i == -3) fprintf(stderr, "...");
+    
+%     fprintf(aFile, "%s", "hello world");
+
+%     while (y > 0)
+%     {
+%         y = y - 1;
+%         a[y] = y;
+%     }
+
+%     return 0;
+% }
+% \end{lstlisting}
 
 \end{document}

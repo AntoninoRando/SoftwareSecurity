@@ -1,0 +1,135 @@
+\documentclass[a4paper,10pt]{article}
+\usepackage{graphicx}
+\usepackage{hyperref}
+\usepackage{listings}
+\usepackage{subcaption}
+
+\title{Security in Software Applications\\Homework 3}
+\author{Rando, 1985084}
+\date{A.A. 2024/2025}
+
+\begin{document}
+
+\maketitle
+
+\section{Echidna}
+
+
+\href{https://github.com/crytic/echidna}{Echidna} is a specialized fuzzer designed for identifying potential security vulnerabilities in \href{https://ethereum.org/en/developers/docs/smart-contracts/}{Ethereum smart contracts} by rigorously testing \href{https://docs.soliditylang.org/en/v0.8.30/}{Solidity} code against developer-defined properties. Its operational methodology involves generating a large number of diverse, randomized inputs and subsequently verifying whether the defined invariants remain consistent under various conditions. In this context, invariants represent critical system properties that are expected to hold true given specific preconditions. Echidna evaluates these Solidity properties by executing the smart contract within a sandboxed environment. Should an invariant violation occur, the tool reports concrete counterexamples that precisely illustrate the failure, thereby aiding in the robust security assessment of smart contracts.
+
+\section{Solution (Part 1 and 2 of the Assignment)}
+
+\subsection{Contract Invariants}
+
+The \verb|Person.sol| contract, which is the subject of verification, includes a constructor. Due to Echidna's current limitation in directly assigning arguments to a contract's constructor, it was necessary to develop a \verb|TestContract|. This \verb|TestContract| is specifically designed to initialize an instance of the \verb|Person| contract with the required constructor parameters, thereby enabling its subsequent fuzzer-based verification by Echidna.
+
+\subsubsection{Marriage Relationship}
+
+To ensure the integrity of the mutual marriage relationship, our initial step involves defining a corresponding invariant. In Echidna's notation, this can be expressed as follows:
+
+
+\begin{verbatim}
+function echidna_symmetricMarriage() public view returns (bool) {
+    if (!isMarried || spouse == address(0)) return true;
+    return Person(spouse).getSpouse() == address(this);
+}
+function echidna_spouseAddressConsistency() public view returns (bool) {
+    return isMarried? spouse != address(0) : spouse == address(0);
+}
+function echidna_notSelfMarried() public view returns (bool) {
+    return spouse != address(this);
+}
+\end{verbatim}
+
+The initial invariant is specifically designed to enforce the primary property concerning the mutual marriage relationship. The two subsequent invariants, however, are utilized to ensure consistency between the \verb|isMarried| and \verb|spouse |fields within the \verb|Person| contract. It is important to note that the \verb|getSpouse| function has been modified to a \verb|view| function, allowing it to be called without altering the contract's state, a common requirement for functions invoked within invariants.
+
+\subsubsection{Subsidy}
+
+To ensure the accurate calculation and verification of the \verb|state_subsidy| allocated to each individual, the following constants were initially defined:
+\begin{verbatim}
+uint constant ELDERLY_SUBSIDY = 600;
+uint constant RETIREMENT_AGE = 65;
+\end{verbatim}
+Subsequently, the \verb|haveBirthday| function required modification to ensure the state subsidy is accurately adjusted in accordance with the updated age:
+\begin{verbatim}
+function haveBirthday() public {
+    age++;
+    updateSubsidy();
+}
+function updateSubsidy() public {
+    if (isMarried)
+        state_subsidy = DEFAULT_SUBSIDY * 70/100; 
+    else
+        state_subsidy = age < RETIREMENT_AGE ? 
+                        DEFAULT_SUBSIDY : ELDERLY_SUBSIDY;
+}
+\end{verbatim}
+Finally:
+\begin{verbatim}
+function echidna_rightSubsidy() public view returns (bool) {
+    if (isMarried) return state_subsidy == DEFAULT_SUBSIDY * 70 / 100;
+    return state_subsidy == (age < RETIREMENT_AGE ? 
+                            DEFAULT_SUBSIDY : ELDERLY_SUBSIDY);
+}
+function echidna_validAge() public view returns (bool) {
+    return age >= 0;
+}
+\end{verbatim}
+The first function ensures the requested property, and the other is extra.
+\begin{verbatim}
+    
+\end{verbatim}
+
+\subsection{Fixes}
+
+The contract lacked rigorous consistency checks. The first correction I made in the code was to add the following preconditions:
+\begin{itemize}
+    \item \texttt{marry} (method to marry a Person given its address):
+    \begin{itemize}
+        \item \texttt{require(new\_spouse != address(0))};
+        \item \texttt{require(new\_spouse != address(this))};
+        \item \texttt{require(new\_spouse != spouse)}.
+    \end{itemize}
+    \item \texttt{divorce} (method to divorce from the current spouse):
+    \begin{itemize}
+        \item \texttt{require(isMarried)};
+        \item \texttt{require(spouse != address(0))};
+    \end{itemize}
+    \item \texttt{setSpouse} (method to change the address of the spouse):
+    \begin{itemize}
+        \item \texttt{require(sp != address(this))};
+        \item \texttt{require(isMarried ? sp != address(0) : sp == address(0))}.
+    \end{itemize}
+\end{itemize}
+
+The other addition does not reduce to simple preconditions. Codes were added to ensure that every time the \texttt{marry} and \texttt{divorce} methods were used, they were also used on the other partner (if needed, of course, to avoid recursion).
+
+\subsection{Echidnea Results}
+
+The execution of the Echidna on the code before and after the fixes are shown in Figure 1 (a)-(b) and Figure 2 respectively.
+
+\begin{figure}[h]
+    \centering
+    \begin{subfigure}{1\textwidth}
+        \centering
+        \includegraphics[width=\textwidth]{Images/Project3-before_fix-a.png}
+        \caption{Echidna detecting invariant violations}
+    \end{subfigure}
+    \hfill
+    \begin{subfigure}{1\textwidth}
+        \centering
+        \includegraphics[width=\textwidth]{Images/Project3-before_fix-b.png}
+        \caption{Echidna detecting invariant violations}
+    \end{subfigure}
+    \caption{Echidna analysis.}
+\end{figure}
+
+
+\begin{figure}[h]
+    \centering
+    \includegraphics[width=1\textwidth]{Images/Project3-after_fix.png}
+    \caption{Echidna confirms all properties hold after fixing}
+\end{figure}
+
+\end{document}
+

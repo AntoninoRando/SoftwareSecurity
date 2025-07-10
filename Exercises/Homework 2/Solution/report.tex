@@ -1,0 +1,114 @@
+\documentclass[a4paper,10pt]{article}
+
+\usepackage{graphicx}
+\usepackage{hyperref}
+\usepackage{listings}
+\usepackage{dirtree}
+
+\title{Security in Software Applications\\Homework 2}
+\author{Rando, 1985084}
+\date{A.A. 2024/2025}
+
+\begin{document}
+
+\maketitle
+
+\begin{abstract}
+\noindent In this report, I will describe my results with fuzzing \href{https://github.com/ImageMagick/ImageMagick/releases/tag/7.0.8-12}{ImageMagick 7.0.8-12} (as of 2025, the oldest available version from the \href{https://github.com/ImageMagick/ImageMagick/releases}{official GitHub page}) using AFL++. This fuzzing tool is a still-under-development upgrade of the open-source software AFL.
+\end{abstract}
+
+\section{American Fuzzy Lop plus plus (AFL++)}
+
+The \href{https://github.com/AFLplusplus/AFLplusplus}{American Fuzzy Lop plus plus} is a leading tool used for fuzzy testing. In my project I decided to use AFL++ instead of AFL because it is a more stable version and it offers \href{https://github.com/nathaniel-bennett/aflplusplus-docker/blob/main/docs/INSTALL.md}{support with Docker}. After pulling the docker image with \lstinline{docker pull aflplusplus/aflplusplus:} and starting it \textit{interactively} with \lstinline{docker run -ti -v /location/of/your/target:/src aflplusplus/aflplusplus}, in the interactive terminal I built the project with AFL++ via the command \lstinline{make all}.
+
+
+%code was chosen based on its CVE listed in \href{https://cve.mitre.org/cgi-bin/cvekey.cgi?keyword=imagemagick}{cve.mitre.org}. Many CVE date back to year 2022, with the first detected being \href{https://www.cve.org/CVERecord?id=CVE-2022-0284}{CVE-2022-0284}. That vulnerability was fixed in version 7.1.0-20 of ImageMagick, thus the prior version \href{https://github.com/ImageMagick/ImageMagick/releases/tag/7.1.0-19}{\textbf{7.1.0-19}} was used.
+
+
+% The first step was thus learning more about this tool through the \href{https://github.com/AFLplusplus/AFLplusplus/blob/stable/docs/README.md}{documentation}. In this homework, the tool has to be used on the project ImageMagick, which source code is available, thus I was able to follow the section dedicated to fuzz with source code available. 
+
+% I learn that I need to build the project with \texttt{CC=afl-clang-fast CXX=afl-clang-fast++ ./configure --disable-shared} and then \texttt{make clean all LDFLAGS="-static"}. (The clean was unnecessary on the first build.)
+
+% To start fuzzing, I firstly ran afl-cmin -i ./samples -o ./samples\_min ./src/utilities/magick @@ /dev/null to minimize the corpus, and then afl-fuzz -i samples -o magick\_out src/utilities/magick @@ /dev/null.
+
+
+\subsection{Difficulties}
+
+A bit of time was required to set up the tool with Docker and understand how to start it, but thanks to the \href{https://github.com/AFLplusplus/AFLplusplus/blob/stable/docs/README.md}{official documentation}, this part of the process caused not much of a problem. In brief, I have downloaded the source code of ImageMagick, created a dockerfile from the aflplusplus image with it, and built the binaries inside the container with AFL++. Building required some try-and-error since some configuration options caused errors (as one, the software needed to be \textit{statically} linked).
+
+The first problem regarded the fuzzer speed. I soon realized I had built the project inefficiently. The second problem was about some temporary files created by the ImageMagick software; I had to run a chrono job to periodically clean them to avoid memory saturation.
+
+Unfortunately, the problem with the fuzzer was not only related to temporary files. In fact, a long time without crashes made me suspicious about the setup. Indeed, I've realized the command to run ImageMagick was not working. Testing it without fuzzing made it clear the problem was with the configuration file. I've run the command to configure and studied the output to understand where the error could be. I had to search through the files of the soruce code, and I found a "install-unix.txt" file that described configuration options.
+
+Another thing I haven't realized is that starting my container with the fuzz command prevented me to resume the fuzz, since the command for resuming is different from the one to start it, and the latter will raise an error if some fuzzing files are found and thus the container does not remain alive. Due to this problem I've lost hours of fuzzing due to a crash. The second time, I've started the container with a "sleep infinity" command and executed the fuzzer inside the container manually.
+
+Lastly, I late realized I could use multiprocessing to fuzz.
+
+After around 4 hours my computer \textbf{completely crashed} and stop working properly, even if I didn't utilize all of my CPU and I was doing nothing. So I've decided to stop the fuzzing against the recommendation of making it run for at least 1 day. (Indeed, I found some weird files inside my container, in a directory that shouldn't be accessible.) Fortunately, my works was saved and I could see my container status again.
+
+
+\subsection{Final Setup}
+
+In my final setup, I've compiled the fuzzer and used 10 input files, parallelized the work with multiple processors and used a chron job to clean temporary files.
+
+\dirtree{%
+    .1 project\_name/.
+    .2 CMakeLists.txt.
+    .2 build/.
+    .2 bin/.
+    .3 tools\_demo.
+    .2 lib/.
+    .3 libtools.a.
+    .2 src/.
+    .3 ....+
+}
+
+% \begin{enumerate}
+%     \item Initially I tried to write the Dockerfile manually but it failed. Pulling it and running it solved the problem.
+%     \item Initially I didn't know where to start using AFL++, but after reading the documentation I understood which steps to take.
+%     \item I was able to compile ImageMagick, but I wasn't able to run it. I spent a while finding the binaries only to know that they weren't there. The software needed to be \textit{statistically} linked, but I wasn't able to do it at first. So when building I should specify \texttt{LDFLAGS="-static" ./configure --without-modules --enable-static --enable-delegate-build --disable-shared}
+%     \item On my first run I got an error 'Last new path : none yet (odd, check syntax!)'. I found out that I was using a wrong syntax for the command line arguments to give to ImageMagick.
+%     \item I had to stretch the timeout option of the fuzzer to 1500+ ms (the plus is used by AFL++ to adjust the timeout based on execution times).
+%     \item In my first fuzzy test I didn't immediately recognized that the program stopped working because of a memory limit reached. This was due to the temporary files created by ImageMagick. Thus, I wrote a shell script to periodically clean the temporary files created by ImageMagick.
+% \end{enumerate}
+
+
+\section{Results}
+
+After a few little than 2 hours, each process found at least 2 crashes and several hangs.
+
+\textbf{Setting}
+\begin{itemize}
+    \item \textbf{Time passed fuzzing}: 16 hours single core, 2 hours quad core;
+    \item \textbf{Sample files}: The first 25 files from the samples file used in \href{https://github.com/moshekaplan/FuzzImageMagick}{another public project}. (There is also a \href{https://lcamtuf.coredump.cx/afl/demo/}{dedicated page}, but the files appear to be corrupted to my Windows Defender.)
+    \item \textbf{Mutations/Executions generated}: $1st$ core: X, $2nd$ core: X, $3rd$ core: X, $4th$ core: a
+    \item \textbf{Crahses}: $1st$ core: 0; $2nd$ core: 16; $3rd$ core: 0, $4th$ core: 0.
+\end{itemize}
+
+I have compared the crashes against the CVEs listed on \href{https://cve.mitre.org/cgi-bin/cvekey.cgi?keyword=imagemagick}{cve.mitre.org}.
+
+\begin{figure}
+    \centering
+    \includegraphics[width=1\linewidth]{Images/Project2-h1.png}
+    \label{fig:enter-label}
+\end{figure}
+
+\begin{figure}
+    \centering
+    \includegraphics[width=1\linewidth]{Images/Project2_h2.png}
+    \label{fig:enter-label}
+\end{figure}
+
+\begin{figure}
+    \centering
+    \includegraphics[width=1\linewidth]{Images/Project2_h3.png}
+    \label{fig:enter-label}
+\end{figure}
+
+\begin{figure}
+    \centering
+    \includegraphics[width=1\linewidth]{Images/Project2-final.png}
+    \label{fig:enter-label}
+\end{figure}
+
+\end{document}
