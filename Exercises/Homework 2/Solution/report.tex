@@ -19,96 +19,71 @@
 
 \section{American Fuzzy Lop plus plus (AFL++)}
 
-The \href{https://github.com/AFLplusplus/AFLplusplus}{American Fuzzy Lop plus plus} is a leading tool used for fuzzy testing. In my project I decided to use AFL++ instead of AFL because it is a more stable version and it offers \href{https://github.com/nathaniel-bennett/aflplusplus-docker/blob/main/docs/INSTALL.md}{support with Docker}. After pulling the docker image with \lstinline{docker pull aflplusplus/aflplusplus:} and starting it \textit{interactively} with \lstinline{docker run -ti -v /location/of/your/target:/src aflplusplus/aflplusplus}, in the interactive terminal I built the project with AFL++ via the command \lstinline{make all}.
+\href{https://github.com/AFLplusplus/AFLplusplus}{AFL++ (American Fuzzy Lop plus plus)} stands as a prominent and highly regarded tool within the domain of fuzz testing. For this project, AFL++ was selected over its predecessor, AFL, primarily due to its enhanced stability and robust \href{https://github.com/nathaniel-bennett/aflplusplus-docker/blob/main/docs/INSTALL.md}{integration with Docker environments}. The initial setup involved pulling the official Docker image using the command docker pull aflplusplus/aflplusplus. Subsequently, an interactive container was launched via docker run -ti -v /location/of/your/target:/src aflplusplus/aflplusplus, which mounted the target project's source code into the container's /src directory. Within this interactive terminal session, the project was then compiled with AFL++ instrumentation by executing the make all command, preparing it for subsequent fuzzing operations.
 
 
-%code was chosen based on its CVE listed in \href{https://cve.mitre.org/cgi-bin/cvekey.cgi?keyword=imagemagick}{cve.mitre.org}. Many CVE date back to year 2022, with the first detected being \href{https://www.cve.org/CVERecord?id=CVE-2022-0284}{CVE-2022-0284}. That vulnerability was fixed in version 7.1.0-20 of ImageMagick, thus the prior version \href{https://github.com/ImageMagick/ImageMagick/releases/tag/7.1.0-19}{\textbf{7.1.0-19}} was used.
+\subsection{Difficulties in Setting Up the Tool}
 
 
-% The first step was thus learning more about this tool through the \href{https://github.com/AFLplusplus/AFLplusplus/blob/stable/docs/README.md}{documentation}. In this homework, the tool has to be used on the project ImageMagick, which source code is available, thus I was able to follow the section dedicated to fuzz with source code available. 
+The initial setup and configuration of Flawfinder within a Dockerized environment required dedicated effort. However, the process was significantly streamlined by referring to the \href{https://github.com/AFLplusplus/AFLplusplus/blob/stable/docs/README.md}{official documentation}. This phase involved constructing a Dockerfile based on the AFL++ image, downloading the ImageMagick directly inside the container, and subsequently building the ImageMagick binaries within the container using AFL++. The compilation process necessitated iterative refinement, as certain configuration options, such as the requirement for static linking of the software, initially led to build errors.
 
-% I learn that I need to build the project with \texttt{CC=afl-clang-fast CXX=afl-clang-fast++ ./configure --disable-shared} and then \texttt{make clean all LDFLAGS="-static"}. (The clean was unnecessary on the first build.)
+Early challenges were identified concerning the fuzzer's operational speed and resource management. An initial suboptimal build configuration was found to impede fuzzer performance. Concurrently, ImageMagick's generation of temporary files frequently led to memory saturation within the container. This issue was mitigated by implementing a scheduled job to periodically purge these temporary files.
 
-% To start fuzzing, I firstly ran afl-cmin -i ./samples -o ./samples\_min ./src/utilities/magick @@ /dev/null to minimize the corpus, and then afl-fuzz -i samples -o magick\_out src/utilities/magick @@ /dev/null.
+Further investigation revealed that the fuzzer's inactivity and lack of reported crashes stemmed from an improperly configured ImageMagick execution command. Diagnostic testing of the command outside the fuzzing context confirmed a configuration file error. Resolving this required a thorough analysis of the configuration command's output and a detailed examination of the ImageMagick source code.
 
+A critical operational challenge emerged regarding container management and fuzzing session resumption. It was discovered that initiating the container directly with the fuzzing command prevented subsequent resumption, as the resume command differs and generates an error when existing fuzzing artifacts are detected, leading to container termination. This issue regrettably resulted in the loss of several hours of fuzzing data due to an unexpected crash. To circumvent this, subsequent fuzzing sessions were initiated by launching the container with a persistent command, such as \verb|sleep infinity|, allowing the fuzzer to be manually executed and managed from within the running container.
 
-\subsection{Difficulties}
+Finally, the potential for leveraging multiprocessing to enhance fuzzing throughput was recognized belatedly.
 
-A bit of time was required to set up the tool with Docker and understand how to start it, but thanks to the \href{https://github.com/AFLplusplus/AFLplusplus/blob/stable/docs/README.md}{official documentation}, this part of the process caused not much of a problem. In brief, I have downloaded the source code of ImageMagick, created a dockerfile from the aflplusplus image with it, and built the binaries inside the container with AFL++. Building required some try-and-error since some configuration options caused errors (as one, the software needed to be \textit{statically} linked).
+After approximately four hours of operation, the host system experienced an unexpected and complete crash, despite monitoring indicating no excessive CPU utilization or other demanding background processes. Consequently, the fuzzing campaign was halted, deviating from the recommended run-time of at least 24 hours. Notably, unusual files were subsequently discovered within an unexpected directory inside the container, the implications of which warrant further investigation. Fortunately, all accumulated fuzzing data remained intact, and the container's status could be successfully re-evaluated.
 
-The first problem regarded the fuzzer speed. I soon realized I had built the project inefficiently. The second problem was about some temporary files created by the ImageMagick software; I had to run a chrono job to periodically clean them to avoid memory saturation.
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=1\linewidth]{Unexpected files.png}
+    \caption{The execution of the command ls inside the container. Every file without an exetension was not expected and has surely been genetaed due tu bugs in ImageMagick.}
+    \label{fig:enter-label}
+\end{figure}
 
-Unfortunately, the problem with the fuzzer was not only related to temporary files. In fact, a long time without crashes made me suspicious about the setup. Indeed, I've realized the command to run ImageMagick was not working. Testing it without fuzzing made it clear the problem was with the configuration file. I've run the command to configure and studied the output to understand where the error could be. I had to search through the files of the soruce code, and I found a "install-unix.txt" file that described configuration options.
-
-Another thing I haven't realized is that starting my container with the fuzz command prevented me to resume the fuzz, since the command for resuming is different from the one to start it, and the latter will raise an error if some fuzzing files are found and thus the container does not remain alive. Due to this problem I've lost hours of fuzzing due to a crash. The second time, I've started the container with a "sleep infinity" command and executed the fuzzer inside the container manually.
-
-Lastly, I late realized I could use multiprocessing to fuzz.
-
-After around 4 hours my computer \textbf{completely crashed} and stop working properly, even if I didn't utilize all of my CPU and I was doing nothing. So I've decided to stop the fuzzing against the recommendation of making it run for at least 1 day. (Indeed, I found some weird files inside my container, in a directory that shouldn't be accessible.) Fortunately, my works was saved and I could see my container status again.
 
 
 \subsection{Final Setup}
 
-In my final setup, I've compiled the fuzzer and used 10 input files, parallelized the work with multiple processors and used a chron job to clean temporary files.
+In the finalized fuzzing setup, the target application was compiled with the necessary fuzzer instrumentation. The fuzzing campaign was initiated using an initial corpus of 10 input files, with the workload parallelized across 12 CPU cores to maximize efficiency. Furthermore, a scheduled cron job was configured to regularly clear temporary files generated during the fuzzing process, preventing disk space exhaustion.
 
-\dirtree{%
-    .1 project\_name/.
-    .2 CMakeLists.txt.
-    .2 build/.
-    .2 bin/.
-    .3 tools\_demo.
-    .2 lib/.
-    .3 libtools.a.
-    .2 src/.
-    .3 ....+
-}
+The specific command utilized for fuzzing was \verb|magick <input> <output>|, which serves to convert an input file using the ImageMagick utility. In this command, the \verb|<input>| parameter was designated as \verb|@@|, a placeholder that directs the fuzzer to supply its generated test cases. The \verb|<output>| was redirected to \verb|/dev/null|, a special device file in Unix-like operating systems that discards all data written to it. This redirection was crucial for preventing memory or disk space saturation by ensuring that the extensive output generated during fuzzing was immediately discarded.
 
-% \begin{enumerate}
-%     \item Initially I tried to write the Dockerfile manually but it failed. Pulling it and running it solved the problem.
-%     \item Initially I didn't know where to start using AFL++, but after reading the documentation I understood which steps to take.
-%     \item I was able to compile ImageMagick, but I wasn't able to run it. I spent a while finding the binaries only to know that they weren't there. The software needed to be \textit{statistically} linked, but I wasn't able to do it at first. So when building I should specify \texttt{LDFLAGS="-static" ./configure --without-modules --enable-static --enable-delegate-build --disable-shared}
-%     \item On my first run I got an error 'Last new path : none yet (odd, check syntax!)'. I found out that I was using a wrong syntax for the command line arguments to give to ImageMagick.
-%     \item I had to stretch the timeout option of the fuzzer to 1500+ ms (the plus is used by AFL++ to adjust the timeout based on execution times).
-%     \item In my first fuzzy test I didn't immediately recognized that the program stopped working because of a memory limit reached. This was due to the temporary files created by ImageMagick. Thus, I wrote a shell script to periodically clean the temporary files created by ImageMagick.
-% \end{enumerate}
+Comprehensive details regarding the project's structure, implementation, and methodology are available on the  \href{https://github.com/AntoninoRando/SoftwareSecurity}{dedicated GitHub page}.
 
 
 \section{Results}
 
-After a few little than 2 hours, each process found at least 2 crashes and several hangs.
+Within approximately two hours of execution, each parallel fuzzing process successfully identified crashes and multiple instances of program hangs. The Table 1 provide a detailed examination of every setting and parameter utilized in this fuzzing campaign (available in the \verb|fuzzer_stats| created by AFL++).
 
-\textbf{Setting}
-\begin{itemize}
-    \item \textbf{Time passed fuzzing}: 16 hours single core, 2 hours quad core;
-    \item \textbf{Sample files}: The first 25 files from the samples file used in \href{https://github.com/moshekaplan/FuzzImageMagick}{another public project}. (There is also a \href{https://lcamtuf.coredump.cx/afl/demo/}{dedicated page}, but the files appear to be corrupted to my Windows Defender.)
-    \item \textbf{Mutations/Executions generated}: $1st$ core: X, $2nd$ core: X, $3rd$ core: X, $4th$ core: a
-    \item \textbf{Crahses}: $1st$ core: 0; $2nd$ core: 16; $3rd$ core: 0, $4th$ core: 0.
-\end{itemize}
 
-I have compared the crashes against the CVEs listed on \href{https://cve.mitre.org/cgi-bin/cvekey.cgi?keyword=imagemagick}{cve.mitre.org}.
-
-\begin{figure}
+\begin{table}
     \centering
-    \includegraphics[width=1\linewidth]{Images/Project2-h1.png}
-    \label{fig:enter-label}
-\end{figure}
+    \begin{tabular}{l|cccccc}
+    core          & 0       & 1       & 2 & 3 & 4 & 5 \\ \hline
+    mutations     & 2027620 & 1863739 & 1883427 & 1790680 & 1841432 & 1892278 \\
+    saved crashes & 3       & 1       & 1       & 12      & 1 & 2  \\
+    saved hangs   & 99      & 86      & 92      & 67      & 73 & 77 \\
+    \end{tabular}
+    \label{tab:my_label}
+\end{table}
 
-\begin{figure}
+\begin{table}
     \centering
-    \includegraphics[width=1\linewidth]{Images/Project2_h2.png}
-    \label{fig:enter-label}
-\end{figure}
+    \begin{tabular}{l|cccccc}
+    \qquad \qquad \qquad \ & 6       & 7       & 8       & 9       & 10      & 11 \\ \hline
+        & 1855224 & 1794054 & 1812614 & 1764810 & 1849085 & 1897920\\
+        & 1       & 1       & 1       & 3       & 1       & 1 \\
+        & 67      & 94      & 77      & 79      & 77      & 79 \\
+    \end{tabular}
+    \caption{Fuzzing campaign results. Each core run for about 4 hours and started 11 files from the samples file used in \href{https://github.com/moshekaplan/FuzzImageMagick}{another public project}. (There is also a \href{https://lcamtuf.coredump.cx/afl/demo/}{dedicated page}, but the files appear to be corrupted to my Windows Defender.). Initially I've gathered a much bigger corpus, but after improving it with AFL-minimize it reduces to few files. More statistics can be found in the \href{https://github.com/AntoninoRando/SoftwareSecurity}{dedicated GitHub page} for this project.}
+    \label{tab:my_label}
+\end{table}
 
-\begin{figure}
-    \centering
-    \includegraphics[width=1\linewidth]{Images/Project2_h3.png}
-    \label{fig:enter-label}
-\end{figure}
 
-\begin{figure}
-    \centering
-    \includegraphics[width=1\linewidth]{Images/Project2-final.png}
-    \label{fig:enter-label}
-\end{figure}
+The identified crashes were compared against the Common Vulnerabilities and Exposures (CVEs) listed on \href{https://cve.mitre.org/cgi-bin/cvekey.cgi?keyword=imagemagick}{cve.mitre.org} using a custom script, \verb|checkCVE.sh|, to automate the detection of known vulnerabilities. Regrettably, these crashes do not appear to correspond to any pre-existing CVEs. It is hypothesized that a longer fuzzing duration, unhindered by the unexpected system crash, might have increased the likelihood of discovering novel vulnerabilities.
 
 \end{document}
